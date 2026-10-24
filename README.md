@@ -22,7 +22,7 @@ A Claude Code mod (function-hook plugin) that routes subagents to a model and an
   The effort shown is what the mod set on the call (or whose it is: the caller's, native, not controlled). The engine reports no effort back, so it is never an observed value. `/roles recent` lists the last 20 spawns.
 - **Invalid configuration routes nothing.** A `routing` value that doesn't parse or validate (bad JSON, an unknown role, a reference cycle, a bad effort, an unknown `defaultRole`) is never patched or partly applied: no spawn is routed, the error is logged at load and in every spawn's line, and `/roles` shows it. `/roles` edits are refused until you fix the value in `/config`.
 - **Main loop and subagents alike.** Agent calls from inside a subagent are routed the same way.
-- **Cost.** The mod calls no model and changes no prompt or tool list. The only tokens it adds are the `warn` note on an untyped Agent result, about 60 tokens per untyped spawn. What it changes is which model your subagents run on, which is the point: routing an agent to a larger model or a higher effort costs more.
+- **Cost.** The mod calls no model and changes no prompt or tool list. The only tokens it adds are the `warn` note on an untyped Agent result, about 100 tokens per untyped spawn (it lists up to 12 typed agents). What it changes is which model your subagents run on, which is the point: routing an agent to a larger model or a higher effort costs more.
 
 ## The routing option
 

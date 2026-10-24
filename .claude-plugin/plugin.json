@@ -7,8 +7,27 @@
     "enabled": {
       "type": "boolean",
       "title": "Enabled",
-      "description": "Turn the mod on for new sessions. /agent-roles on|off overrides it for a session.",
+      "description": "Turn the mod on for new sessions. /roles on|off overrides it for a session.",
       "default": true
+    },
+    "routing": {
+      "type": "string",
+      "title": "Routing",
+      "description": "The role map as JSON: {\"version\":1,\"roles\":{...},\"agents\":{...}}. Empty routes nothing. /roles set|bind|unbind edits it.",
+      "default": ""
+    },
+    "untypedPolicy": {
+      "type": "string",
+      "title": "Untyped policy",
+      "description": "What to do with Agent calls that name no subagent_type or general-purpose: warn (run, and tell the model which typed agents exist), allow, or deny.",
+      "options": ["warn", "allow", "deny"],
+      "default": "warn"
+    },
+    "defaultRole": {
+      "type": "string",
+      "title": "Default role",
+      "description": "A role from routing for untyped spawns; empty leaves them native.",
+      "default": ""
     }
   },
   "author": {

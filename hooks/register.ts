@@ -1,26 +1,77 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { INITIAL, USAGE, configFrom, isActive, parseArgs, statusText } from './policy'
-import type { Config } from '../types'
+import {
+  INITIAL,
+  RECENT_MAX,
+  USAGE,
+  configFrom,
+  denyReason,
+  effortControl,
+  isActive,
+  isUntyped,
+  logLine,
+  parseCommand,
+  recentText,
+  resolveRoute,
+  statusText,
+  typedAlternatives,
+  untypedNote,
+} from './policy'
+import { applyEdit, serializeRouting } from './routing'
+import type { Config, Effort, RouteRecord, Snapshot } from '../types'
 
-const NAME = 'agent-roles'
+const COMMAND = 'roles'
 
-// Change the shape tag when Session's fields change: a value an older version
-// stored (it outlives a hot reload) then reads as INITIAL instead of breaking.
-const sessionAtom = atom({ plugin: 'agent-roles', key: 'session' } as const, INITIAL, { shape: 'session-1' })
+// Change a shape tag when its type changes: a value an older version stored
+// (it outlives a hot reload) then reads as the initial instead of breaking.
+const sessionAtom = atom({ plugin: 'agent-roles', key: 'session' } as const, INITIAL, { shape: 'session-2' })
+const recentAtom = atom({ plugin: 'agent-roles', key: 'recent' } as const, [] as RouteRecord[], { shape: 'recent-1' })
 
-// Module variables reset on a hot reload; register and session.start run
-// again then. Anything that must persist goes in $.state or $.store.
+// Module variables reset on a hot reload (a /config change reloads the module
+// with the new options); register and session.start run again then.
 let config: Config = configFrom({})
+/** Agent types the engine offered the model, for the untyped note and deny reason. */
+const offered = new Set<string>()
 
-/** Best effort: reporting must never throw out of a hook or a timer. */
+/** Best effort: reporting must never throw out of a hook. */
 function log($: EngineInterface, text: string) {
   try {
-    $.ui.log(`${NAME}: ${text}`)
+    $.ui.log(text)
   } catch {
     // nothing to do
   }
+}
+
+async function getPending($: EngineInterface, id: string): Promise<Snapshot | null> {
+  const { value } = await $.state.get({ plugin: 'agent-roles', key: 'pending', id })
+  return value ?? null
+}
+
+async function setPending($: EngineInterface, id: string, value: Snapshot | null) {
+  await $.state.set({ plugin: 'agent-roles', key: 'pending', id }, value)
+}
+
+/** Logs the spawn's line and keeps it for /roles recent. */
+async function record($: EngineInterface, rec: Omit<RouteRecord, 'at'>) {
+  log($, logLine({ ...rec, at: 0 }))
+  try {
+    const at = await $.clock.now()
+    await update($, recentAtom, list => [...list, { ...rec, at }].slice(-RECENT_MAX))
+  } catch {
+    // the log line already said it
+  }
+}
+
+/** The /config row for this plugin's routing option. */
+async function routingKey($: EngineInterface): Promise<string | null> {
+  const rows = await $.config.list()
+  const row = rows.find(r => r.provider.plugin === $.plugin.name && r.key.endsWith('.routing'))
+  return row?.key ?? null
+}
+
+function strip<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
 }
 
 export const register: Register = (on, options) => {
@@ -28,28 +79,125 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: NAME,
-      description: 'Show or set whether agent-roles is on for this session',
-      argumentHint: '[on|off|status]',
+      name: COMMAND,
+      description: 'Show or edit agent-roles: the role map that routes subagents to a model and effort',
+      argumentHint: '[show|set|bind|unbind|recent|on|off]',
     })
+    if (!config.routing.ok) log($, `agent-roles: the routing option is invalid, so no spawn is routed: ${config.routing.errors.join('; ')}`)
     return next(e)
   })
 
-  on('command.run', { command: NAME }, async ($, e) => {
-    const cmd = parseArgs(e.args)
+  on('session.end', async ($, e, next) => {
+    // /clear starts a new conversation: its spawn records start empty.
+    if (e.reason === 'clear') await update($, recentAtom, () => []).catch(() => undefined)
+    return next(e)
+  })
+
+  on('agent.offer', ($, e, next) => {
+    offered.add(e.agent)
+    return next(e)
+  }).catch(($, e, next) => next(e)) // observes only
+
+  on('command.run', { command: COMMAND }, async ($, e) => {
+    const cmd = parseCommand(e.args)
     if (cmd.kind === 'help') return { text: cmd.error ? `${cmd.error}\n${USAGE}` : USAGE }
-    if (cmd.kind === 'set') await update($, sessionAtom, s => ({ ...s, mode: cmd.mode }))
-    return { text: statusText(config, await read($, sessionAtom)) }
+    if (cmd.kind === 'recent') return { text: recentText(await read($, recentAtom)) }
+    if (cmd.kind === 'mode') {
+      await update($, sessionAtom, s => ({ ...s, mode: cmd.mode }))
+      return { text: statusText(config, await read($, sessionAtom)) }
+    }
+    if (cmd.kind === 'show') return { text: statusText(config, await read($, sessionAtom)) }
+
+    // An edit: build the whole new map, validate it, write it once or not at all.
+    if (!config.routing.ok)
+      return { text: `Not saved: the routing option is invalid (${config.routing.errors.join('; ')}). Fix it in /config first.` }
+    const next = applyEdit(config.routing.routing, cmd.edit)
+    if (!next.ok) return { text: `Not saved: ${next.errors.join('; ')}` }
+    const key = await routingKey($)
+    if (key === null) return { text: 'Not saved: no /config row for the routing option was found.' }
+    const value = serializeRouting(next.routing)
+    const res = await $.config.set({ key, value })
+    if (res.deny !== undefined) return { text: `Not saved: ${res.deny}` }
+    // The write reloads the module with the new options; until then use it here.
+    config = configFrom({ ...options, routing: value })
+    return { text: `Saved. New spawns use it.\n${statusText(config, await read($, sessionAtom))}` }
   })
 
-  on('turn.start', async ($, e, next) => {
-    // Subagent loops carry agentId; this mod acts on the main conversation only.
-    if (e.agentId !== undefined) return next(e)
-    const session = await read($, sessionAtom)
-    if (isActive(config, session)) {
-      await update($, sessionAtom, s => ({ ...s, turns: s.turns + 1 }))
-      log($, `main turn ${e.turnId} started`)
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+    if (e.tool !== 'Agent') return next(e)
+    if (!isActive(config, await read($, sessionAtom))) return next(e)
+    const type = e.subagent_type ?? 'general-purpose'
+    // A fork inherits model and effort; agent.spawn logs it.
+    if (type === 'fork') return next(e)
+    const cfg = config // one revision for the whole call
+    const untyped = isUntyped(e.subagent_type)
+    const callerModel = e.model
+    const callerEffort: Effort | undefined = e.effort
+
+    if (untyped && cfg.untypedPolicy === 'deny') {
+      const reason = denyReason(type, typedAlternatives(cfg, [...offered]))
+      await record($, strip({ type, untyped, role: null, source: 'native' as const, reason: 'untypedPolicy deny', callerModel, callerEffort, effortControl: 'native' as const, resolvedModel: null, denied: 'untypedPolicy deny' }))
+      return { deny: reason }
     }
-    return next(e)
-  })
+
+    const route = resolveRoute(cfg, { type, untyped, callerModel, callerEffort })
+    await setPending($, e.tool_use_id, strip({ type, untyped, route, callerModel, callerEffort }))
+    try {
+      const r = await next(route.effort !== undefined ? { ...e, effort: route.effort } : e)
+      if (!untyped || cfg.untypedPolicy !== 'warn' || r.deny !== undefined || r.isError) return r
+      const result = r.result as { resolvedModel?: unknown } | undefined
+      const resolvedModel = typeof result?.resolvedModel === 'string' ? result.resolvedModel : null
+      const rec: RouteRecord = strip({
+        at: 0,
+        type,
+        untyped,
+        role: route.role,
+        source: route.source,
+        reason: route.reason,
+        callerModel,
+        callerEffort,
+        effort: route.effort,
+        effortControl: effortControl({ route, hasSnapshot: true, callerEffort }),
+        resolvedModel,
+      })
+      return { ...r, context: [...(r.context ?? []), untypedNote(rec, typedAlternatives(cfg, [...offered]))] }
+    } finally {
+      await setPending($, e.tool_use_id, null).catch(() => undefined)
+    }
+  }).catch(($, e, next) => next(e)) // fails open: a bug never blocks delegation
+
+  on('agent.spawn', async ($, e, next) => {
+    // A resume ignores content rewrites; nothing to route or report.
+    if (e.resume !== undefined) return next(e)
+    if (!isActive(config, await read($, sessionAtom))) return next(e)
+    // A workflow agent's tool_use_id is its Workflow call's, never an Agent call's.
+    const snap = e.workflow === undefined ? await getPending($, e.tool_use_id) : null
+    const type = snap?.type ?? e.subagentType
+    const untyped = snap?.untyped ?? isUntyped(e.subagentType)
+    const callerModel = snap ? snap.callerModel : e.model
+    const callerEffort = snap?.callerEffort
+    const route = snap?.route ?? resolveRoute(config, { type, untyped, fork: e.fork, callerModel })
+    const setModel = !e.fork && route.model !== undefined ? route.model : undefined
+
+    const res = await next(setModel !== undefined ? { ...e, model: setModel } : e)
+    await record(
+      $,
+      strip({
+        type,
+        untyped,
+        role: route.role,
+        source: e.fork ? ('fork' as const) : route.source,
+        reason: route.reason,
+        callerModel,
+        callerEffort,
+        setModel,
+        effort: snap ? route.effort : undefined,
+        effortControl: e.fork ? ('inherited' as const) : effortControl({ route, hasSnapshot: snap !== null, callerEffort }),
+        resolvedModel: res.deny === undefined ? res.model : null,
+        agentId: res.agentId,
+        denied: res.deny,
+      }),
+    )
+    return res
+  }).catch(($, e, next) => next(e))
 }

@@ -15,7 +15,7 @@ A Claude Code mod (function-hook plugin) that routes subagents to a model and an
 - **One log line per spawn**, in the transcript (and as `ui_log` in `claude -p` and SDK hosts), once core has resolved the model:
 
   ```
-  agent-roles: scout → fast → asked -/- → claude-haiku-5-5, effort low set (binding)
+  agent-roles: scout → search → asked -/- → claude-haiku-5-5, effort low set (binding)
   agent-roles: general-purpose [untyped] → no role → asked -/- → claude-opus-5-5, effort native (native)
   ```
 

@@ -77,22 +77,23 @@ async function routingRow($: EngineInterface): Promise<ConfigRow | null> {
   return rows.find(r => r.key === key) ?? null
 }
 
-/** How long a /roles edit may wait behind another before it gives up unsaved. */
-const EDIT_WAIT_MS = 3000
-
-/** Same-session /roles edits run one at a time, in order (reset by a reload). */
-let editChain: Promise<unknown> = Promise.resolve()
+/** Whether a same-session /roles edit is running (reset by a reload). */
+let editing = false
 
 /**
- * Queues one edit behind any still running, so each starts from what the one
- * before it saved. The hook's own budget counts the wait (it awaits this
- * module's promise), so an edit that waited past EDIT_WAIT_MS saves nothing.
+ * Runs one edit at a time. An edit that arrives while another is running is
+ * refused at once rather than queued: waiting would count the mod's own
+ * promise against the hook's time budget, and a stalled write would hold
+ * every later edit.
  */
 async function editRouting($: EngineInterface, options: Record<string, unknown>, edit: Edit): Promise<string> {
-  const queuedAt = await $.clock.now()
-  const run = editChain.then(() => runEdit($, options, edit, queuedAt))
-  editChain = run.catch(() => undefined)
-  return run
+  if (editing) return 'Not saved: another /roles edit is still running; run this one again when it finishes.'
+  editing = true
+  try {
+    return await runEdit($, options, edit)
+  } finally {
+    editing = false
+  }
 }
 
 /**
@@ -100,8 +101,7 @@ async function editRouting($: EngineInterface, options: Record<string, unknown>,
  * new map from it, validate it, write it once or not at all, and install and
  * report what the engine saved.
  */
-async function runEdit($: EngineInterface, options: Record<string, unknown>, edit: Edit, queuedAt: number): Promise<string> {
-  if ((await $.clock.now()) - queuedAt > EDIT_WAIT_MS) return 'Not saved: another /roles edit took too long; run this one again.'
+async function runEdit($: EngineInterface, options: Record<string, unknown>, edit: Edit): Promise<string> {
   const row = await routingRow($)
   // With no row (headless) the loaded options are the latest this session can read.
   const base = row === null ? config : configFrom({ ...options, routing: typeof row.value === 'string' ? row.value : '' })

@@ -397,21 +397,25 @@ describe('agent-roles: /roles', () => {
     expect(w.ran[0]!.effort).toBeUndefined()
   })
 
-  test('overlapping edits are serialized: neither change is lost', WITH, async ($, on) => {
+  test('an edit while another is still running is refused, never lost silently', WITH, async ($, on) => {
     const w = world($, on)
     await start($)
     const [a, b] = await Promise.all([roles($, 'set alpha sonnet medium'), roles($, 'set beta opus high')])
     expect(a.text).toContain('Saved. New spawns use it.')
-    expect(b.text).toContain('Saved. New spawns use it.')
+    expect(b.text).toContain('Not saved: another /roles edit is still running')
+    expect(Object.keys(JSON.parse(w.saved.value).roles).sort()).toEqual(['alpha', 'deep', 'fast', 'search'])
+    // Once the first has finished, the next edit goes through and keeps both.
+    expect((await roles($, 'set beta opus high')).text).toContain('Saved. New spawns use it.')
     expect(Object.keys(JSON.parse(w.saved.value).roles).sort()).toEqual(['alpha', 'beta', 'deep', 'fast', 'search'])
   })
 
-  test('an edit queued too long behind another saves nothing and says so', WITH, async ($, on) => {
+  test('a stalled edit does not hold later ones waiting: they are refused at once', WITH, async ($, on) => {
     const w = world($, on, { writeMs: 5000 })
     await start($)
-    const [a, b] = await Promise.all([roles($, 'set alpha sonnet'), roles($, 'set beta opus')])
-    expect(a.text).toContain('Saved. New spawns use it.')
-    expect(b.text).toContain('Not saved: another /roles edit took too long')
+    const first = roles($, 'set alpha sonnet')
+    const second = await roles($, 'set beta opus')
+    expect(second.text).toContain('Not saved: another /roles edit is still running')
+    expect((await first).text).toContain('Saved. New spawns use it.')
     expect(w.configSets.length).toBe(1)
   })
 

@@ -1,0 +1,13 @@
+{
+  "name": "agent-roles",
+  "owner": {
+    "name": "Chris Vaillancourt"
+  },
+  "plugins": [
+    {
+      "name": "agent-roles",
+      "source": "./"
+    }
+  ],
+  "description": "Route subagents to models and effort from one role map"
+}

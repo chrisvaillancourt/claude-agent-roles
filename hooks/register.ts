@@ -15,6 +15,7 @@ import {
   parseCommand,
   recentText,
   resolveRoute,
+  savedOutcome,
   statusText,
   typedAlternatives,
   untypedNote,
@@ -129,9 +130,11 @@ export const register: Register = (on, options) => {
       return { text: `Not saved: ${err instanceof Error ? err.message : String(err)}` }
     }
     if (res.deny !== undefined) return { text: `Not saved: ${res.deny}` }
-    // The write reloads the module with the new options; until then use it here.
-    config = configFrom({ ...options, routing: value })
-    return { text: `Saved. New spawns use it.\n${statusText(config, await read($, sessionAtom))}` }
+    // The write reloads the module with the new options; until then use what
+    // the engine saved (another hook may have replaced the proposal).
+    const saved = savedOutcome(options, value, res.value)
+    config = saved.config
+    return { text: `${saved.head}\n${statusText(config, await read($, sessionAtom))}` }
   })
 
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {

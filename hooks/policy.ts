@@ -193,6 +193,25 @@ export function statusText(config: Config, session: Session): string {
 }
 
 /**
+ * What a `$.config.set` answered `{ value }` with: the value actually saved,
+ * which another plugin's `config.set` hook may have clamped or replaced. That
+ * value, not the proposal, becomes the config, and the text says so when the
+ * two differ. A saved value that doesn't validate routes nothing.
+ */
+export function savedOutcome(options: Record<string, unknown>, proposed: string, written: unknown): { config: Config; head: string } {
+  const config: Config =
+    typeof written === 'string'
+      ? configFrom({ ...options, routing: written })
+      : { ...configFrom(options), routing: { ok: false, errors: [`the saved routing value is a ${Array.isArray(written) ? 'list' : typeof written}, not JSON text`] } }
+  const same = written === proposed
+  const changed = 'the value written differs from the edit (another plugin or a setting changed it)'
+  if (!config.routing.ok)
+    return { config, head: `Saved, but ${same ? 'the value' : changed + ', and it'} is invalid, so no spawn is routed until it is fixed in /config.` }
+  if (same) return { config, head: 'Saved. New spawns use it.' }
+  return { config, head: `Saved, but ${changed}. New spawns use what was saved:` }
+}
+
+/**
  * A headless session (`claude -p`, the SDK) lists no plugin rows in /config on
  * Claude Code 2.1.310, so `$.config.set` can't reach the option. Nothing is
  * saved or applied; this is the value to save by hand, and where.

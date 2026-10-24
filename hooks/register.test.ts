@@ -36,6 +36,8 @@ type WorldOpts = {
   provider?: string
   /** A headless session on 2.1.310: $.config.list has no plugin rows and $.config.set rejects their keys. */
   noRows?: boolean
+  /** Another plugin's config.set hook replaces the value written with this one. */
+  clampTo?: string
 }
 
 function world($: any, on: On, opts: WorldOpts = {}) {
@@ -61,9 +63,10 @@ function world($: any, on: On, opts: WorldOpts = {}) {
   on('config.set', ($2, e) => {
     if (opts.noRows) return { deny: `no /config row with key ${e.key}` }
     if (opts.denyConfig) return { deny: opts.denyConfig }
-    configSets.push({ key: e.key, value: e.value })
-    saved.value = String(e.value)
-    return { value: e.value }
+    const value = opts.clampTo ?? e.value
+    configSets.push({ key: e.key, value })
+    saved.value = String(value)
+    return { value }
   })
   on('agent.offer', () => ({ isOffered: true }))
   on('agent.spawn', ($2, e) => {
@@ -336,6 +339,29 @@ describe('agent-roles: /roles', () => {
     expect(w.configSets).toEqual([])
     await agent($, 'scout')
     expect(w.spawned[0]!.model).toBe('claude-haiku-5-5')
+  })
+
+  test('a write another hook replaced: reports and uses the value actually saved', WITH, async ($, on) => {
+    const w = world($, on, { clampTo: ROUTING })
+    await start($)
+    const res = await roles($, 'set fast opus high')
+    expect(res.text).not.toContain('Saved. New spawns use it.')
+    expect(res.text).toContain('differs from the edit')
+    expect(res.text).toContain('fast → claude-haiku-5-5, effort low')
+    await agent($, 'scout')
+    expect(w.spawned[0]!.model).toBe('claude-haiku-5-5')
+    expect(w.ran[0]!.effort).toBe('low')
+  })
+
+  test('a saved value that is invalid routes nothing and says so', WITH, async ($, on) => {
+    const w = world($, on, { clampTo: '{"version":2}' })
+    await start($)
+    const res = await roles($, 'set fast opus high')
+    expect(res.text).not.toContain('Saved. New spawns use it.')
+    expect(res.text).toContain('invalid')
+    await agent($, 'scout')
+    expect(w.spawned[0]!.model).toBeUndefined()
+    expect(w.ran[0]!.effort).toBeUndefined()
   })
 
   test('a refused config write is reported and the old map stays', WITH, async ($, on) => {

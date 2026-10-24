@@ -10,6 +10,7 @@ import {
   logLine,
   parseCommand,
   recentText,
+  savedOutcome,
   resolveRoute,
   statusText,
   typedAlternatives,
@@ -199,6 +200,23 @@ describe('texts', () => {
     expect(recentText([])).toBe('No spawns recorded in this session yet.')
     const t = recentText([RECORD, { ...RECORD, type: 'worker', at: 1 }])
     expect(t.indexOf('worker')).toBeLessThan(t.indexOf('scout'))
+  })
+})
+
+describe('savedOutcome', () => {
+  const v = '{"version":1,"roles":{"a":{"model":"haiku"}},"agents":{}}'
+  test('the saved value is the config; a difference from the edit is said', () => {
+    expect(savedOutcome({}, v, v).head).toBe('Saved. New spawns use it.')
+    const other = '{"version":1,"roles":{"b":{"model":"opus"}},"agents":{}}'
+    const r = savedOutcome({}, v, other)
+    expect(r.head).toContain('differs from the edit')
+    expect(r.config.routing.ok && Object.keys(r.config.routing.routing.roles)).toEqual(['b'])
+  })
+  test('a saved value that is not text or does not validate routes nothing', () => {
+    const list = savedOutcome({}, v, ['x'])
+    expect(list.config.routing.ok).toBe(false)
+    expect(list.head).toContain('invalid')
+    expect(savedOutcome({}, v, '{').config.routing.ok).toBe(false)
   })
 })
 

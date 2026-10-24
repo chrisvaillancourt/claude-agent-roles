@@ -27,7 +27,18 @@ type Ran = { tool_use_id: string; type?: string; effort?: string; model?: string
  * own `agent.spawn` with the call's tool_use_id, as core does; a spawn
  * resolves `model` to the given one or the parent's.
  */
-function world($: any, on: On, opts: { denyConfig?: string; toolDenies?: boolean } = {}) {
+type WorldOpts = {
+  denyConfig?: string
+  toolDenies?: boolean
+  /** The saved routing value the /config row holds; the test's routing option by default. */
+  saved?: string
+  /** The row's provider id: `agent-roles@inline` for a --plugin-dir load, `agent-roles@agent-roles` installed. */
+  provider?: string
+  /** A headless session on 2.1.310: $.config.list has no plugin rows and $.config.set rejects their keys. */
+  noRows?: boolean
+}
+
+function world($: any, on: On, opts: WorldOpts = {}) {
   const logs: string[] = []
   const spawned: Spawned[] = []
   const ran: Ran[] = []
@@ -40,12 +51,18 @@ function world($: any, on: On, opts: { denyConfig?: string; toolDenies?: boolean
     logs.push(e.text)
     return { value: undefined }
   })
+  const saved = { value: opts.saved ?? ROUTING }
+  const engineRow = { key: 'verbose', label: 'Verbose output', kind: 'boolean' as const, value: false, provider: ENGINE, isLocked: false }
   on('config.list', () => ({
-    value: [{ key: 'agent-roles.routing', label: 'Routing', kind: 'text' as const, value: '', provider: { plugin: 'agent-roles', tier: 'user' as const }, isLocked: false }],
+    value: opts.noRows
+      ? [engineRow]
+      : [engineRow, { key: 'agent-roles.routing', label: 'Routing', kind: 'text' as const, value: saved.value, provider: { plugin: opts.provider ?? 'agent-roles@inline', tier: 'user' as const }, isLocked: false }],
   }))
   on('config.set', ($2, e) => {
+    if (opts.noRows) return { deny: `no /config row with key ${e.key}` }
     if (opts.denyConfig) return { deny: opts.denyConfig }
     configSets.push({ key: e.key, value: e.value })
+    saved.value = String(e.value)
     return { value: e.value }
   })
   on('agent.offer', () => ({ isOffered: true }))
@@ -72,7 +89,7 @@ function world($: any, on: On, opts: { denyConfig?: string; toolDenies?: boolean
     const result = { status: 'completed', agentId: s.agentId, resolvedModel: s.model, content: [{ type: 'text', text: 'done' }], totalToolUseCount: 0, totalDurationMs: 1, totalTokens: 1, prompt: e.prompt, usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: null, service_tier: null, cache_creation: null } }
     return { result: result as any, text: 'done' }
   })
-  return { logs, spawned, ran, configSets }
+  return { logs, spawned, ran, configSets, saved }
 }
 
 const start = ($: any) => $.session.start({ cwd: '/x', surface: 'terminal', isInteractive: true })
@@ -294,6 +311,31 @@ describe('agent-roles: /roles', () => {
     expect(res.text).toContain('Not saved')
     expect(res.text).toContain('cycle')
     expect(w.configSets).toEqual([])
+  })
+
+  test('an installed copy finds its row by key, whatever the provider id', WITH, async ($, on) => {
+    const w = world($, on, { provider: 'agent-roles@agent-roles' })
+    await start($)
+    const res = await roles($, 'set fast sonnet')
+    expect(res.text).toContain('Saved')
+    expect(w.configSets.map(c => c.key)).toEqual(['agent-roles.routing'])
+  })
+
+  test('headless (no /config rows): says so, prints the value to paste and where, keeps the map', WITH, async ($, on) => {
+    const w = world($, on, { noRows: true })
+    await start($)
+    const res = await roles($, 'set fast sonnet medium')
+    expect(res.text).not.toContain('Saved')
+    expect(res.text).toContain('Not saved')
+    expect(res.text).toContain('pluginConfigs["agent-roles@agent-roles"].options.routing')
+    expect(res.text).toContain('agent-roles@inline')
+    const proposed = JSON.parse(ROUTING)
+    proposed.roles.fast = { model: 'sonnet', effort: 'medium' }
+    // The exact value, as a settings.json string literal.
+    expect(res.text).toContain(JSON.stringify(JSON.stringify(proposed)))
+    expect(w.configSets).toEqual([])
+    await agent($, 'scout')
+    expect(w.spawned[0]!.model).toBe('claude-haiku-5-5')
   })
 
   test('a refused config write is reported and the old map stays', WITH, async ($, on) => {

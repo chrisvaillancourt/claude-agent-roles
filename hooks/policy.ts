@@ -192,6 +192,20 @@ export function statusText(config: Config, session: Session): string {
   return lines.join('\n')
 }
 
+/**
+ * A headless session (`claude -p`, the SDK) lists no plugin rows in /config on
+ * Claude Code 2.1.310, so `$.config.set` can't reach the option. Nothing is
+ * saved or applied; this is the value to save by hand, and where.
+ */
+export function noConfigRowText(value: string): string {
+  return [
+    'Not saved: this session lists no /config row for the routing option (headless `claude -p` and SDK sessions list none on Claude Code 2.1.310), so /roles can\'t write it. Nothing changed.',
+    'To apply this edit, set the option in settings.json under pluginConfigs["agent-roles@agent-roles"].options.routing (the key is the plugin id: agent-roles@<marketplace> for an install, agent-roles@inline for a --plugin-dir load) to this string:',
+    JSON.stringify(value),
+    'Or run /roles in an interactive session, or `claude plugin configure agent-roles@agent-roles --values-stdin` with {"routing": <that string>}. It applies to sessions started after.',
+  ].join('\n')
+}
+
 export function recentText(records: readonly RouteRecord[]): string {
   if (records.length === 0) return 'No spawns recorded in this session yet.'
   return [...records]

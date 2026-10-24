@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ConfigRow, EngineInterface, Register } from 'claude-code'
 
 import {
   INITIAL,
@@ -11,6 +11,7 @@ import {
   isActive,
   isUntyped,
   logLine,
+  noConfigRowText,
   parseCommand,
   recentText,
   resolveRoute,
@@ -63,11 +64,16 @@ async function record($: EngineInterface, rec: Omit<RouteRecord, 'at'>) {
   }
 }
 
-/** The /config row for this plugin's routing option. */
-async function routingKey($: EngineInterface): Promise<string | null> {
+/**
+ * The /config row for this plugin's routing option, by its key
+ * (`<plugin>.<field>`). The row's provider names the plugin id
+ * (`agent-roles@inline`, `agent-roles@<marketplace>`), not `$.plugin.name`.
+ * Headless sessions list no plugin rows at all (2.1.310): null then.
+ */
+async function routingRow($: EngineInterface): Promise<ConfigRow | null> {
+  const key = `${$.plugin.name}.routing`
   const rows = await $.config.list()
-  const row = rows.find(r => r.provider.plugin === $.plugin.name && r.key.endsWith('.routing'))
-  return row?.key ?? null
+  return rows.find(r => r.key === key) ?? null
 }
 
 function strip<T extends object>(o: T): T {
@@ -113,10 +119,15 @@ export const register: Register = (on, options) => {
       return { text: `Not saved: the routing option is invalid (${config.routing.errors.join('; ')}). Fix it in /config first.` }
     const next = applyEdit(config.routing.routing, cmd.edit)
     if (!next.ok) return { text: `Not saved: ${next.errors.join('; ')}` }
-    const key = await routingKey($)
-    if (key === null) return { text: 'Not saved: no /config row for the routing option was found.' }
     const value = serializeRouting(next.routing)
-    const res = await $.config.set({ key, value })
+    const row = await routingRow($)
+    if (row === null) return { text: noConfigRowText(value) }
+    let res: Awaited<ReturnType<EngineInterface['config']['set']>>
+    try {
+      res = await $.config.set({ key: row.key, value })
+    } catch (err) {
+      return { text: `Not saved: ${err instanceof Error ? err.message : String(err)}` }
+    }
     if (res.deny !== undefined) return { text: `Not saved: ${res.deny}` }
     // The write reloads the module with the new options; until then use it here.
     config = configFrom({ ...options, routing: value })

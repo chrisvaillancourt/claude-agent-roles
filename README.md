@@ -62,6 +62,8 @@ An empty `routing` value means an empty map: nothing is routed, and the untyped 
 
 Edits validate the whole new map and write it with one `/config` change, or write nothing. A change another plugin or a managed setting refuses is reported, not retried. A change applies to spawns that start after it.
 
+Edits need an interactive session. Headless sessions (`claude -p`, the SDK) list no plugin rows in `/config` on Claude Code 2.1.310, so there `/roles set|bind|unbind` saves nothing, changes nothing, and prints the new `routing` value to paste into settings (`pluginConfigs["agent-roles@agent-roles"].options.routing`) or pass to `claude plugin configure agent-roles@agent-roles --values-stdin`.
+
 ## Options
 
 | Option | Default | What it does |
@@ -80,6 +82,7 @@ Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-ro
 - **No observed effort.** The log shows the effort requested. The model shown is the one core resolved at spawn; a forced subagent model or a fallback model can still change what serves later requests.
 - **`untypedPolicy` covers Agent tool calls only**, not plugin or workflow spawns.
 - **The guard fails open.** If the mod's hook fails, the Agent call goes on unchanged, so `deny` lets that one call through.
+- **`/roles` edits work only in interactive sessions.** Headless sessions print the value to save by hand instead (see Command).
 - **Teammates** are routed like any Agent call but weren't tested.
 - Cut from this version: model-name suffixes (`haiku:low`), fuzzy model matching, fallback chains, per-project maps, and a pane.
 

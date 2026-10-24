@@ -22,7 +22,7 @@ A Claude Code mod (function-hook plugin) that routes subagents to a model and an
   The effort shown is what the mod set on the call (or whose it is: the caller's, native, not controlled). The engine reports no effort back, so it is never an observed value. `/roles recent` lists the last 20 spawns.
 - **Invalid configuration routes nothing.** A `routing` value that doesn't parse or validate (bad JSON, an unknown role, a reference cycle, a bad effort, an unknown `defaultRole`) is never patched or partly applied: no spawn is routed, the error is logged at load and in every spawn's line, and `/roles` shows it. `/roles` edits are refused until you fix the value in `/config`.
 - **Main loop and subagents alike.** Agent calls from inside a subagent are routed the same way.
-- **Cost.** The mod calls no model and changes no prompt or tool list. The only tokens it adds are the `warn` note on an untyped Agent result, about 100 tokens per untyped spawn (it lists up to 12 typed agents). What it changes is which model your subagents run on, which is the point: routing an agent to a larger model or a higher effort costs more.
+- **Cost.** The mod calls no model and changes no prompt or tool list. The only tokens it adds are the `warn` note on an untyped Agent result, about 100 tokens per untyped spawn (it lists up to 12 typed agents). What it changes is which model your subagents run on, which is the point: routing an agent to a larger model or a higher effort costs more. One indirect cost: in auto mode, rewriting an Agent call's effort makes the engine's auto-mode safety classifier judge that call itself. That is a model call the engine makes and bills (seen live on 2.1.310: one classifier request of about 1.2 s on the session's Sonnet model, with a prompt of about 140K characters). It happens only for Agent calls whose effort the mod sets, in auto mode. The mod doesn't suppress it.
 
 ## The routing option
 
@@ -85,6 +85,7 @@ Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-ro
 - **The guard fails open.** If the mod's hook fails, the Agent call goes on unchanged, so `deny` lets that one call through.
 - **`/roles` edits work only in interactive sessions.** Headless sessions print the value to save by hand instead (see Command).
 - **Two sessions editing at once can lose a change.** `/config` has no atomic update: an edit in another session that lands between this edit's read and its write is overwritten. Edits within one session are serialized.
+- **Auto mode classifies rewritten Agent calls.** See Cost: a call whose effort the mod set gets an extra safety-classifier model call from the engine.
 - **Teammates** are routed like any Agent call but weren't tested.
 - Cut from this version: model-name suffixes (`haiku:low`), fuzzy model matching, fallback chains, per-project maps, and a pane.
 

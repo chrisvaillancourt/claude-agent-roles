@@ -60,7 +60,7 @@ An empty `routing` value means an empty map: nothing is routed, and the untyped 
 | `/roles recent` | The last 20 spawns: type, role, what was asked, what was set, the model core resolved. |
 | `/roles on` / `/roles off` | Turn the mod on or off for this session. |
 
-Edits validate the whole new map and write it with one `/config` change, or write nothing. A change another plugin or a managed setting refuses is reported, not retried. If another plugin's hook changes the value on its way in, `/roles` says so and uses what was actually saved; a saved value that doesn't validate routes nothing, as above. A change applies to spawns that start after it.
+Edits validate the whole new map and write it with one `/config` change, or write nothing. A change another plugin or a managed setting refuses is reported, not retried. Each edit starts from the map saved right before it writes, and edits in one session run one at a time, so two quick edits both land (one left waiting more than 3 seconds behind another saves nothing and says so). If another plugin's hook changes the value on its way in, `/roles` says so and uses what was actually saved; a saved value that doesn't validate routes nothing, as above. A change applies to spawns that start after it.
 
 Edits need an interactive session. Headless sessions (`claude -p`, the SDK) list no plugin rows in `/config` on Claude Code 2.1.310, so there `/roles set|bind|unbind` saves nothing, changes nothing, and prints the new `routing` value to paste into settings (`pluginConfigs["agent-roles@agent-roles"].options.routing`) or pass to `claude plugin configure agent-roles@agent-roles --values-stdin`.
 
@@ -83,6 +83,7 @@ Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-ro
 - **`untypedPolicy` covers Agent tool calls only**, not plugin or workflow spawns.
 - **The guard fails open.** If the mod's hook fails, the Agent call goes on unchanged, so `deny` lets that one call through.
 - **`/roles` edits work only in interactive sessions.** Headless sessions print the value to save by hand instead (see Command).
+- **Two sessions editing at once can lose a change.** `/config` has no atomic update: an edit in another session that lands between this edit's read and its write is overwritten. Edits within one session are serialized.
 - **Teammates** are routed like any Agent call but weren't tested.
 - Cut from this version: model-name suffixes (`haiku:low`), fuzzy model matching, fallback chains, per-project maps, and a pane.
 

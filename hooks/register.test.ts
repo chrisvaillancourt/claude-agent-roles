@@ -38,6 +38,8 @@ type WorldOpts = {
   noRows?: boolean
   /** Another plugin's config.set hook replaces the value written with this one. */
   clampTo?: string
+  /** Milliseconds each config write takes on the world's clock. */
+  writeMs?: number
 }
 
 function world($: any, on: On, opts: WorldOpts = {}) {
@@ -47,7 +49,8 @@ function world($: any, on: On, opts: WorldOpts = {}) {
   const configSets: { key: string; value: unknown }[] = []
   on('session.start', ($2, e) => ({ cwd: e.cwd }))
   on('session.end', () => ({ sessionId: 's1' }))
-  on('clock.now', () => ({ value: 1000 }))
+  const clock = { now: 1000 }
+  on('clock.now', () => ({ value: clock.now }))
   on('command.register', ($2, e) => ({ value: { command: e.name } }))
   on('ui.log', ($2, e) => {
     logs.push(e.text)
@@ -63,6 +66,7 @@ function world($: any, on: On, opts: WorldOpts = {}) {
   on('config.set', ($2, e) => {
     if (opts.noRows) return { deny: `no /config row with key ${e.key}` }
     if (opts.denyConfig) return { deny: opts.denyConfig }
+    clock.now += opts.writeMs ?? 0
     const value = opts.clampTo ?? e.value
     configSets.push({ key: e.key, value })
     saved.value = String(value)
@@ -256,8 +260,9 @@ describe('agent-roles: untyped spawns', () => {
 })
 
 describe('agent-roles: invalid config', () => {
-  test('routes nothing, reports at load, on every spawn and in /roles; refuses edits', { options: { routing: '{"version":1,"roles":{"a":{"role":"a"}},"agents":{"scout":{"role":"a"}}}' } }, async ($, on) => {
-    const w = world($, on)
+  const CYCLE = '{"version":1,"roles":{"a":{"role":"a"}},"agents":{"scout":{"role":"a"}}}'
+  test('routes nothing, reports at load, on every spawn and in /roles; refuses edits', { options: { routing: CYCLE } }, async ($, on) => {
+    const w = world($, on, { saved: CYCLE })
     await start($)
     expect(w.logs[0]).toContain('routing option is invalid')
     expect(w.logs[0]).toContain('cycle')
@@ -362,6 +367,47 @@ describe('agent-roles: /roles', () => {
     await agent($, 'scout')
     expect(w.spawned[0]!.model).toBeUndefined()
     expect(w.ran[0]!.effort).toBeUndefined()
+  })
+
+  test('overlapping edits are serialized: neither change is lost', WITH, async ($, on) => {
+    const w = world($, on)
+    await start($)
+    const [a, b] = await Promise.all([roles($, 'set alpha sonnet medium'), roles($, 'set beta opus high')])
+    expect(a.text).toContain('Saved. New spawns use it.')
+    expect(b.text).toContain('Saved. New spawns use it.')
+    expect(Object.keys(JSON.parse(w.saved.value).roles).sort()).toEqual(['alpha', 'beta', 'deep', 'fast', 'search'])
+  })
+
+  test('an edit queued too long behind another saves nothing and says so', WITH, async ($, on) => {
+    const w = world($, on, { writeMs: 5000 })
+    await start($)
+    const [a, b] = await Promise.all([roles($, 'set alpha sonnet'), roles($, 'set beta opus')])
+    expect(a.text).toContain('Saved. New spawns use it.')
+    expect(b.text).toContain('Not saved: another /roles edit took too long')
+    expect(w.configSets.length).toBe(1)
+  })
+
+  test('an edit starts from the latest saved map, not the one loaded at start', WITH, async ($, on) => {
+    const w = world($, on)
+    await start($)
+    // Saved meanwhile by another session or the /config menu, before this module reloaded.
+    const later = JSON.parse(ROUTING)
+    later.roles.other = { model: 'opus' }
+    w.saved.value = JSON.stringify(later)
+    await roles($, 'set fast sonnet')
+    const now = JSON.parse(w.saved.value)
+    expect(now.roles.other).toEqual({ model: 'opus' })
+    expect(now.roles.fast).toEqual({ model: 'sonnet' })
+  })
+
+  test('an edit is refused while the saved map is invalid, even if the loaded one was fine', WITH, async ($, on) => {
+    const w = world($, on)
+    await start($)
+    w.saved.value = '{"version":1,"roles":{"a":{"role":"a"}},"agents":{}}'
+    const res = await roles($, 'set fast sonnet')
+    expect(res.text).toContain('Not saved')
+    expect(res.text).toContain('cycle')
+    expect(w.configSets).toEqual([])
   })
 
   test('a refused config write is reported and the old map stays', WITH, async ($, on) => {

@@ -20,7 +20,7 @@ import {
   typedAlternatives,
   untypedNote,
 } from './policy'
-import { applyEdit, serializeRouting } from './routing'
+import { applyEdit, serializeRouting, type Edit } from './routing'
 import type { Config, Effort, RouteRecord, Snapshot } from '../types'
 
 const COMMAND = 'roles'
@@ -77,6 +77,53 @@ async function routingRow($: EngineInterface): Promise<ConfigRow | null> {
   return rows.find(r => r.key === key) ?? null
 }
 
+/** How long a /roles edit may wait behind another before it gives up unsaved. */
+const EDIT_WAIT_MS = 3000
+
+/** Same-session /roles edits run one at a time, in order (reset by a reload). */
+let editChain: Promise<unknown> = Promise.resolve()
+
+/**
+ * Queues one edit behind any still running, so each starts from what the one
+ * before it saved. The hook's own budget counts the wait (it awaits this
+ * module's promise), so an edit that waited past EDIT_WAIT_MS saves nothing.
+ */
+async function editRouting($: EngineInterface, options: Record<string, unknown>, edit: Edit): Promise<string> {
+  const queuedAt = await $.clock.now()
+  const run = editChain.then(() => runEdit($, options, edit, queuedAt))
+  editChain = run.catch(() => undefined)
+  return run
+}
+
+/**
+ * One edit: read the latest saved map right before the write, build the whole
+ * new map from it, validate it, write it once or not at all, and install and
+ * report what the engine saved.
+ */
+async function runEdit($: EngineInterface, options: Record<string, unknown>, edit: Edit, queuedAt: number): Promise<string> {
+  if ((await $.clock.now()) - queuedAt > EDIT_WAIT_MS) return 'Not saved: another /roles edit took too long; run this one again.'
+  const row = await routingRow($)
+  // With no row (headless) the loaded options are the latest this session can read.
+  const base = row === null ? config : configFrom({ ...options, routing: typeof row.value === 'string' ? row.value : '' })
+  if (!base.routing.ok) return `Not saved: the routing option is invalid (${base.routing.errors.join('; ')}). Fix it in /config first.`
+  const next = applyEdit(base.routing.routing, edit)
+  if (!next.ok) return `Not saved: ${next.errors.join('; ')}`
+  const value = serializeRouting(next.routing)
+  if (row === null) return noConfigRowText(value)
+  let res: Awaited<ReturnType<EngineInterface['config']['set']>>
+  try {
+    res = await $.config.set({ key: row.key, value })
+  } catch (err) {
+    return `Not saved: ${err instanceof Error ? err.message : String(err)}`
+  }
+  if (res.deny !== undefined) return `Not saved: ${res.deny}`
+  // The write reloads the module with the new options; until then use what
+  // the engine saved (another hook may have replaced the proposal).
+  const saved = savedOutcome(options, value, res.value)
+  config = saved.config
+  return `${saved.head}\n${statusText(config, await read($, sessionAtom))}`
+}
+
 function strip<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
 }
@@ -115,26 +162,7 @@ export const register: Register = (on, options) => {
     }
     if (cmd.kind === 'show') return { text: statusText(config, await read($, sessionAtom)) }
 
-    // An edit: build the whole new map, validate it, write it once or not at all.
-    if (!config.routing.ok)
-      return { text: `Not saved: the routing option is invalid (${config.routing.errors.join('; ')}). Fix it in /config first.` }
-    const next = applyEdit(config.routing.routing, cmd.edit)
-    if (!next.ok) return { text: `Not saved: ${next.errors.join('; ')}` }
-    const value = serializeRouting(next.routing)
-    const row = await routingRow($)
-    if (row === null) return { text: noConfigRowText(value) }
-    let res: Awaited<ReturnType<EngineInterface['config']['set']>>
-    try {
-      res = await $.config.set({ key: row.key, value })
-    } catch (err) {
-      return { text: `Not saved: ${err instanceof Error ? err.message : String(err)}` }
-    }
-    if (res.deny !== undefined) return { text: `Not saved: ${res.deny}` }
-    // The write reloads the module with the new options; until then use what
-    // the engine saved (another hook may have replaced the proposal).
-    const saved = savedOutcome(options, value, res.value)
-    config = saved.config
-    return { text: `${saved.head}\n${statusText(config, await read($, sessionAtom))}` }
+    return { text: await editRouting($, options, cmd.edit) }
   })
 
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {

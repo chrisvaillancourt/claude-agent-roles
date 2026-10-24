@@ -243,6 +243,34 @@ describe('agent-roles: untyped spawns', () => {
     expect((await agent($, 'scout')).deny).toBeUndefined()
   })
 
+  test('the catch-all claude agent is untyped by default: denied, and never offered as typed', { options: { routing: ROUTING, untypedPolicy: 'deny' } }, async ($, on) => {
+    const w = world($, on)
+    await start($)
+    await $.agent.offer({ agent: 'claude', description: 'Catch-all', source: 'built-in', provider: ENGINE })
+    await $.agent.offer({ agent: 'Explore', description: 'search', source: 'built-in', provider: ENGINE })
+    const gp = await agent($, 'general-purpose')
+    expect(gp.deny).toContain('scout, worker, reviewer, Explore.')
+    expect(gp.deny).not.toContain('claude,')
+    const r = await agent($, 'claude')
+    expect(r.deny).toContain('untypedPolicy deny')
+    expect(w.spawned).toEqual([])
+    expect(w.logs[1]).toContain('claude [untyped]')
+  })
+
+  test('warn: the claude agent gets the untyped note', WITH, async ($, on) => {
+    world($, on)
+    await start($)
+    const r = await agent($, 'claude')
+    expect(r.context?.[0]).toContain('claude, an untyped agent')
+  })
+
+  test('untypedAgents replaces the default list', { options: { routing: ROUTING, untypedPolicy: 'deny', untypedAgents: ['general-purpose'] } }, async ($, on) => {
+    world($, on)
+    await start($)
+    expect((await agent($, 'claude')).deny).toBeUndefined()
+    expect((await agent($, undefined)).deny).toContain('untypedPolicy deny')
+  })
+
   test('allow: no note', { options: { routing: ROUTING, untypedPolicy: 'allow' } }, async ($, on) => {
     world($, on)
     await start($)

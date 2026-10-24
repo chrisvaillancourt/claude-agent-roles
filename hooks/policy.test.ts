@@ -35,7 +35,7 @@ const ROUTING = JSON.stringify({
 })
 
 const cfg = (extra: Record<string, unknown> = {}) => configFrom({ routing: ROUTING, ...extra })
-const typed = (type: string, more: object = {}) => ({ type, untyped: isUntyped(type), ...more })
+const typed = (type: string, more: object = {}) => ({ type, untyped: isUntyped(configFrom({}), type), ...more })
 
 describe('configFrom', () => {
   test('defaults: on, warn, no default role, empty map', async () => {
@@ -51,6 +51,11 @@ describe('configFrom', () => {
     expect(c.routing.ok).toBe(false)
     if (!c.routing.ok) expect(c.routing.errors).toEqual(['defaultRole "nope" is not a role in routing'])
     expect(cfg({ defaultRole: 'deep' }).routing.ok).toBe(true)
+  })
+
+  test('untypedAgents defaults to the two catch-alls; a list replaces it', async () => {
+    expect(configFrom({}).untypedAgents).toEqual(['general-purpose', 'claude'])
+    expect(configFrom({ untypedAgents: ['general-purpose'] }).untypedAgents).toEqual(['general-purpose'])
   })
 
   test('an unknown untypedPolicy reads as the default', async () => {

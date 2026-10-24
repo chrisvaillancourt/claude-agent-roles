@@ -5,8 +5,12 @@ import type { Config, Effort, EffortControl, Mode, Route, RouteRecord, Routing, 
 
 export const INITIAL: Session = { mode: null }
 
-/** Agent types that carry no specialist definition: the Agent tool's default. */
-export const UNTYPED = ['general-purpose']
+/**
+ * The `untypedAgents` default: agent types that carry no specialist
+ * definition. `general-purpose` is the Agent tool's default; `claude` is the
+ * engine's catch-all ("for any task that doesn't fit a more specific agent").
+ */
+export const UNTYPED_DEFAULT: readonly string[] = ['general-purpose', 'claude']
 
 export const RECENT_MAX = 20
 
@@ -18,8 +22,11 @@ export function configFrom(options: Record<string, unknown>): Config {
   let routing = parseRouting(typeof options.routing === 'string' ? options.routing : '')
   if (routing.ok && defaultRole !== '' && !Object.hasOwn(routing.routing.roles, defaultRole))
     routing = { ok: false, errors: [`defaultRole "${defaultRole}" is not a role in routing`] }
+  const list = options.untypedAgents
+  const untypedAgents = Array.isArray(list) ? list.filter((t): t is string => typeof t === 'string').map(t => t.trim()).filter(t => t !== '') : [...UNTYPED_DEFAULT]
   return {
     enabled: options.enabled !== false,
+    untypedAgents,
     untypedPolicy: typeof policy === 'string' && (POLICIES as readonly string[]).includes(policy) ? (policy as UntypedPolicy) : 'warn',
     defaultRole,
     routing,
@@ -30,8 +37,9 @@ export function isActive(config: Config, session: Session): boolean {
   return session.mode === null ? config.enabled : session.mode === 'on'
 }
 
-export function isUntyped(type: string | undefined): boolean {
-  return type === undefined || UNTYPED.includes(type)
+/** Whether an Agent call's type is untyped; no `subagent_type` means `general-purpose`. */
+export function isUntyped(config: Config, type: string | undefined): boolean {
+  return config.untypedAgents.includes(type ?? 'general-purpose')
 }
 
 export type RouteRequest = {
@@ -120,7 +128,7 @@ export function logLine(r: RouteRecord): string {
 export function typedAlternatives(config: Config, offered: readonly string[]): string[] {
   const out: string[] = []
   const add = (t: string) => {
-    if (!isUntyped(t) && t !== 'fork' && !out.includes(t)) out.push(t)
+    if (!isUntyped(config, t) && t !== 'fork' && !out.includes(t)) out.push(t)
   }
   if (config.routing.ok) for (const t of Object.keys(config.routing.routing.agents)) add(t)
   for (const t of offered) add(t)
@@ -138,7 +146,7 @@ export function untypedNote(r: RouteRecord, alternatives: readonly string[]): st
 /** The Agent tool's error under `deny`. */
 export function denyReason(type: string, alternatives: readonly string[]): string {
   const alts = alternatives.length > 0 ? `: ${alternatives.join(', ')}` : ' from the agent list'
-  return `agent-roles refuses untyped Agent calls (untypedPolicy deny): ${type} runs on the session's model at the session's effort. Call Agent again with a typed subagent_type${alts}.`
+  return `agent-roles refuses untyped Agent calls (untypedPolicy deny): ${type} is a catch-all agent with no specialist definition (untypedAgents). Call Agent again with a typed subagent_type${alts}.`
 }
 
 function leafText(model: string | undefined, effort: Effort | undefined): string {
@@ -175,7 +183,7 @@ export function statusText(config: Config, session: Session): string {
   const state = isActive(config, session) ? 'on' : 'off'
   const from = session.mode === null ? 'from the enabled option' : 'set for this session'
   const lines = [
-    `${state} (${from}); untypedPolicy ${config.untypedPolicy}; defaultRole ${config.defaultRole || 'none'}.`,
+    `${state} (${from}); untypedPolicy ${config.untypedPolicy} for ${config.untypedAgents.length > 0 ? config.untypedAgents.join(', ') : 'no agent types'}; defaultRole ${config.defaultRole || 'none'}.`,
   ]
   if (!config.routing.ok) {
     lines.push('The routing option is invalid; nothing is routed until it is fixed in /config:')

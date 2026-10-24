@@ -172,7 +172,7 @@ export const register: Register = (on, options) => {
     // A fork inherits model and effort; agent.spawn logs it.
     if (type === 'fork') return next(e)
     const cfg = config // one revision for the whole call
-    const untyped = isUntyped(e.subagent_type)
+    const untyped = isUntyped(cfg, e.subagent_type)
     const callerModel = e.model
     const callerEffort: Effort | undefined = e.effort
 
@@ -215,7 +215,7 @@ export const register: Register = (on, options) => {
     // A workflow agent's tool_use_id is its Workflow call's, never an Agent call's.
     const snap = e.workflow === undefined ? await getPending($, e.tool_use_id) : null
     const type = snap?.type ?? e.subagentType
-    const untyped = snap?.untyped ?? isUntyped(e.subagentType)
+    const untyped = snap?.untyped ?? isUntyped(config, e.subagentType)
     const callerModel = snap ? snap.callerModel : e.model
     const callerEffort = snap?.callerEffort
     const route = snap?.route ?? resolveRoute(config, { type, untyped, fork: e.fork, callerModel })

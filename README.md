@@ -1,12 +1,12 @@
 # agent-roles
 
-A Claude Code mod (function-hook plugin) that routes subagents to a model and an effort level from one central role map, and shows how each spawn was routed. Agent files already carry `model` and `effort`; this mod adds one place to change many agents at once, a log line per spawn, and a guard against untyped `general-purpose` delegation, which runs on the session's model at the session's effort.
+A Claude Code mod (function-hook plugin) that routes subagents to a model and an effort level from one central role map, and shows how each spawn was routed. Agent files already carry `model` and `effort`; this mod adds one place to change many agents at once, a log line per spawn, and a guard against delegating to catch-all agents (`general-purpose`, `claude`) that carry no specialist definition.
 
 ## Behavior
 
 - **Roles and bindings.** The `routing` option holds a small JSON map: named roles (a model and an effort, or a reference to another role) and bindings from agent types to roles. When the model calls the Agent tool with a bound `subagent_type`, the mod sets the call's `effort` and the spawn's `model` from the role. Change the role once and every agent bound to it follows on its next spawn.
 - **What wins.** An Agent call that names a `model` itself keeps the caller's whole choice (model and effort) unless the binding sets `overrideCaller`. A call that names only an `effort` keeps that effort and gets the role's model. A role field left out keeps what the agent's own definition, then the session, decides. Agent types with no binding are untouched.
-- **Untyped spawns.** An Agent call with no `subagent_type`, or `general-purpose`, follows `untypedPolicy`:
+- **Untyped spawns.** An Agent call whose type is in `untypedAgents` (by default `general-purpose`, which a call with no `subagent_type` gets, and `claude`, the engine's catch-all "for any task that doesn't fit a more specific agent") follows `untypedPolicy`. Neither carries a specialist definition, so both are on the list; an untyped type is never suggested as a typed alternative:
   - `warn` (default): the spawn runs. Its log line is marked `untyped`, and the model gets one short note after the Agent result naming the typed agents it could use instead. The person sees the log line; only the model reads the note.
   - `deny`: the Agent call is refused with a reason that names the typed agents.
   - `allow`: no note, no refusal.
@@ -70,7 +70,8 @@ Edits need an interactive session. Headless sessions (`claude -p`, the SDK) list
 | --- | --- | --- |
 | `enabled` | `true` | Turn the mod on for new sessions. `/roles on\|off` overrides it per session. |
 | `routing` | empty | The role map above, as JSON text. |
-| `untypedPolicy` | `warn` | `warn`, `allow` or `deny`, for Agent calls with no `subagent_type` or `general-purpose`. |
+| `untypedPolicy` | `warn` | `warn`, `allow` or `deny`, for Agent calls whose type is in `untypedAgents`. |
+| `untypedAgents` | `general-purpose`, `claude` | The agent types `untypedPolicy` covers. A call with no `subagent_type` counts as `general-purpose`. |
 | `defaultRole` | empty | A role for untyped spawns; empty leaves them native. Must name a role in `routing`. |
 
 Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-roles"].options` (the key is the plugin id, `<plugin>@<marketplace>`; `agent-roles@inline` for a `--plugin-dir` load).

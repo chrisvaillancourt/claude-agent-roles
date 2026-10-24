@@ -19,9 +19,23 @@
     "untypedPolicy": {
       "type": "string",
       "title": "Untyped policy",
-      "description": "What to do with Agent calls that name no subagent_type or general-purpose: warn (run, and tell the model which typed agents exist), allow, or deny.",
-      "options": ["warn", "allow", "deny"],
+      "description": "What to do with Agent calls whose type is in untypedAgents: warn (run, and tell the model which typed agents exist), allow, or deny.",
+      "options": [
+        "warn",
+        "allow",
+        "deny"
+      ],
       "default": "warn"
+    },
+    "untypedAgents": {
+      "type": "string",
+      "multiple": true,
+      "title": "Untyped agents",
+      "description": "Agent types untypedPolicy covers: catch-alls with no specialist definition. An Agent call with no subagent_type counts as general-purpose.",
+      "default": [
+        "general-purpose",
+        "claude"
+      ]
     },
     "defaultRole": {
       "type": "string",

@@ -25,6 +25,8 @@ export type UntypedPolicy = 'warn' | 'allow' | 'deny'
 export type Config = {
   enabled: boolean
   untypedPolicy: UntypedPolicy
+  /** Agent types the untyped policy covers (`untypedAgents`); no `subagent_type` counts as `general-purpose`. */
+  untypedAgents: string[]
   /** A role for untyped spawns; '' for none. */
   defaultRole: string
   /** The routing option with defaultRole checked against it. */

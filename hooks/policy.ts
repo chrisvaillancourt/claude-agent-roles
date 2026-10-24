@@ -129,7 +129,8 @@ export function typedAlternatives(config: Config, offered: readonly string[]): s
 
 /** What the model reads after an untyped Agent result under `warn`. */
 export function untypedNote(r: RouteRecord, alternatives: readonly string[]): string {
-  const ran = `it ran on ${r.resolvedModel ?? "the session's model"} with effort ${effortText(r)}`
+  const effort = r.effortControl === 'native' ? 'at its default effort' : `with effort ${effortText(r)}`
+  const ran = `it ran on ${r.resolvedModel ?? "the session's model"} ${effort}`
   const alts = alternatives.length > 0 ? `: ${alternatives.join(', ')}` : ' from the agent list'
   return `agent-roles: this Agent call used ${r.type}, an untyped agent; ${ran}. When a typed agent fits a task, name it in subagent_type${alts}.`
 }

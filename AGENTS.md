@@ -22,6 +22,7 @@ A Claude Code mod (function-hook plugin). `README.md` is the user-facing spec; k
 - **Visibility.** One `$.ui.log` line per spawn, after core resolved it: type → role → what the caller asked → the model core resolved and the effort the mod set (or whose effort it is), and the source. `/roles recent` lists the last 20 such records from `$.state` (cleared on `/clear`). The engine reports no effort back, so the effort shown is what was requested, never an observed value.
 - **Guards fail open.** The `tool.call` hook's `.catch` passes the call on unchanged when the hook fails: a bug never blocks delegation (and so `deny` fails open too). `agent.spawn`'s `.catch` does the same.
 - **No model calls, no prompt or tool-list changes.** The mod costs no tokens of its own except the `warn` note on an untyped Agent result (about 60 tokens per untyped spawn).
+- **Checked live on Claude Code 2.1.310** (headless, `--model haiku`, an observer plugin seated below this one): the Agent call's `tool_use_id` is the one `agent.spawn` carries, so the snapshot joins; the `effort` set at `tool.call` and the `model` set at `agent.spawn` were both on the bound agent's first request (`turn.step` index 0: `claude-sonnet-5-5`, `low`, served by `claude-sonnet-5-5`) while an untyped sibling ran at the session's `haiku`/`high`; the `warn` note reached the transcript as a PostToolUse reminder; the `deny` reason reached the model as the tool error; `$.ui.log` lines arrived as `ui_log`. Options for a `--plugin-dir` load are read from `pluginConfigs["agent-roles@inline"]`.
 
 ## Commands
 

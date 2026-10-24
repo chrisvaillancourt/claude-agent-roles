@@ -172,7 +172,7 @@ describe('texts', () => {
   test('the untyped note and the deny reason name the alternatives and do not mention thinking', async () => {
     const note = untypedNote({ ...RECORD, type: 'general-purpose', untyped: true, effortControl: 'native', resolvedModel: 'claude-opus-5-5' }, ['scout', 'worker'])
     expect(note).toContain('general-purpose')
-    expect(note).toContain('claude-opus-5-5')
+    expect(note).toContain('it ran on claude-opus-5-5 at its default effort')
     expect(note).toContain('subagent_type: scout, worker')
     expect(note.toLowerCase()).not.toContain('think')
     expect(note.toLowerCase()).not.toContain('reason')

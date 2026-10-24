@@ -71,7 +71,7 @@ Edits validate the whole new map and write it with one `/config` change, or writ
 | `untypedPolicy` | `warn` | `warn`, `allow` or `deny`, for Agent calls with no `subagent_type` or `general-purpose`. |
 | `defaultRole` | empty | A role for untyped spawns; empty leaves them native. Must name a role in `routing`. |
 
-Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-roles"].options` (the key is the plugin id, `<plugin>@<marketplace>`).
+Set them in `/config`, or in settings under `pluginConfigs["agent-roles@agent-roles"].options` (the key is the plugin id, `<plugin>@<marketplace>`; `agent-roles@inline` for a `--plugin-dir` load).
 
 ## Limitations
 
